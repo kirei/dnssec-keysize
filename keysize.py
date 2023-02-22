@@ -1,9 +1,11 @@
 import argparse
 import logging
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 
 import dns.dnssec
+import dns.edns
 import dns.message
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
@@ -11,6 +13,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from dns.dnssectypes import Algorithm
 from dns.rdtypes.ANY.DNSKEY import DNSKEY
 from dns.rdtypes.dnskeybase import Flag
+
+SERVER_COOKIE_SIZE = 16
 
 
 def keygen(algorithm: Algorithm, key_size: Optional[int] = None):
@@ -63,11 +67,13 @@ class Key:
         )
 
 
-def generate_dnskey_response(zone: dns.name.Name, keys: List[Key]):
-
+def generate_dnskey_response(
+    zone: dns.name.Name, keys: List[Key], server_cookie_size: int = 0
+):
     signer = zone
     ttl = 3600
     lifetime = 86400
+    payload = 8192
 
     dnskey_rrset = dns.rrset.from_rdata_list(zone, ttl, [k.dnskey for k in keys])
 
@@ -87,9 +93,27 @@ def generate_dnskey_response(zone: dns.name.Name, keys: List[Key]):
     rrsig_rrset = dns.rrset.from_rdata_list(zone, ttl, rrsigs)
 
     query = dns.message.make_query(
-        zone, "DNSKEY", want_dnssec=True, use_edns=True, flags=0, payload=8192
+        zone, "DNSKEY", want_dnssec=True, use_edns=True, flags=0, payload=payload
     )
-    response = dns.message.make_response(query)
+    response = dns.message.make_response(query, our_payload=8192)
+
+    if server_cookie_size:
+        if server_cookie_size > 32 or server_cookie_size < 8:
+            raise ValueError("Invalid server_cookie_size size")
+        client_cookie = os.urandom(8)
+        server_cookie = os.urandom(server_cookie_size)
+        options = [
+            dns.edns.GenericOption(
+                dns.edns.OptionType.COOKIE, client_cookie + server_cookie
+            )
+        ]
+        response.use_edns(
+            edns=0,
+            ednsflags=0,
+            payload=payload,
+            request_payload=query.payload,
+            options=options,
+        )
 
     header_size = len(response.to_wire())
     logging.debug("Response header, %d bytes", header_size)
@@ -118,6 +142,16 @@ def main():
 
     parser = argparse.ArgumentParser(description="DNSSEC Key Size Calculator")
 
+    parser.add_argument("--cookie", action="store_true", help="Add DNS cookie")
+    parser.add_argument("--debug", action="store_true", help="Enable debugging")
+
+    parser.add_argument(
+        "--cookie-size",
+        type=int,
+        default=SERVER_COOKIE_SIZE,
+        help="Server cookie size (default 32)"
+    )
+
     parser.add_argument(
         "algorithms",
         nargs="+",
@@ -125,8 +159,6 @@ def main():
         help="algorithm(:keysize), where algorithm is one of "
         + ",".join(ALGORITHMS_SUPPORTED),
     )
-
-    parser.add_argument("--debug", action="store_true", help="Enable debugging")
 
     args = parser.parse_args()
 
@@ -145,7 +177,9 @@ def main():
         algorithms_seen.add(algorithm)
         keys.append(Key.keygen(algorithm=algorithm, key_size=key_size, ksk=ksk))
 
-    response = generate_dnskey_response(zone, keys)
+    response = generate_dnskey_response(
+        zone, keys, server_cookie_size=args.cookie_size if args.cookie else 0
+    )
     wire = response.to_wire()
 
     print(response)
