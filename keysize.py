@@ -341,7 +341,7 @@ def main():
         "--cookie-size",
         type=int,
         default=SERVER_COOKIE_SIZE,
-        help="Server cookie size (default 32)",
+        help=f"Server cookie size (default {SERVER_COOKIE_SIZE})",
     )
 
     parser.add_argument(

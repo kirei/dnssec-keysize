@@ -38,6 +38,14 @@ Calculate the NXDOMAIN for a plain NS query:
 
     python3 keysize.py --nxdomain rsasha256:2048 rsasha256:2048 ed448 ed448
 
+## Cookies
+
+[DNS Cookies](https://www.rfc-editor.org/rfc/rfc7873) is supported via the `--cookie` option, e.g.:
+
+    python3 keysize.py --dnskey --cookie rsasha256:2048 rsasha256:2048 ed448 ed448
+
+Default cookie size is 16 bytes, but can be set using the `--cookie-size` option.
+
 
 ## Dependencies
 
