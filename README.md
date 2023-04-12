@@ -12,6 +12,10 @@ Example:
 
     python3 keysize.py --dnskey rsasha256:2048 rsasha256:2048 ed448 ed448
 
+One can also sign with two KSKs of the same algorithm, e.g., for revocation:
+
+    python3 keysize.py --dnskey rsasha256:2048 rsasha256:revoke:2048 rsasha256:2048
+
 
 ## Priming Queries
 

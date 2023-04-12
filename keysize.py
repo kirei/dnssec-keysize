@@ -65,13 +65,17 @@ class Key:
 
     @classmethod
     def keygen(
-        cls, algorithm: Algorithm, key_size: Optional[int] = None, ksk: bool = False
+        cls,
+        algorithm: Algorithm,
+        key_size: Optional[int] = None,
+        ksk: bool = False,
+        revoke: bool = False,
     ):
         return cls(
             private_key=keygen(algorithm, key_size),
             algorithm=algorithm,
             key_size=key_size,
-            flags=Flag.ZONE | (Flag.SEP if ksk else 0),
+            flags=Flag.ZONE | (Flag.SEP if ksk else 0) | (Flag.REVOKE if revoke else 0),
         )
 
 
@@ -320,6 +324,7 @@ def main():
     )
 
     parser.add_argument("--cookie", action="store_true", help="Add DNS cookie")
+    parser.add_argument("--revoke", action="store_true", help="Revoke all but one KSK")
     parser.add_argument("--debug", action="store_true", help="Enable debugging")
 
     parser.add_argument(
@@ -362,11 +367,29 @@ def main():
     algorithms_seen = set()
     for a in args.algorithms:
         params = a.split(":")
-        algorithm = Algorithm[params[0].upper()]
-        key_size = int(params[1]) if len(params) > 1 else None
-        ksk = algorithm not in algorithms_seen
+
+        algorithm = Algorithm[params.pop(0).upper()]
+
+        revoke = False
+        ksk = None
+        key_size = None
+
+        if len(params) > 0:
+            if params[0] in ["ksk", "zsk", "revoke"]:
+                v = params.pop(0)
+                ksk = v in ["ksk", "revoke"]
+                revoke = v == "revoke"
+
+        if len(params) > 0:
+            key_size = int(params[0])
+
+        if ksk is None:
+            ksk = algorithm not in algorithms_seen
+
         algorithms_seen.add(algorithm)
-        keys.append(Key.keygen(algorithm=algorithm, key_size=key_size, ksk=ksk))
+        k = Key.keygen(algorithm=algorithm, key_size=key_size, ksk=ksk, revoke=revoke)
+        logging.debug("Generated key: %s", k)
+        keys.append(k)
 
     if args.dnskey:
         response = generate_dnskey_response(
